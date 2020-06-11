@@ -1,0 +1,345 @@
+---
+title: "HW4"
+author: "Qin Dong, Esther Lumbantobing"
+date: "April 13, 2018"
+output: 
+  html_document:
+    code_folding: hide
+    highlight: tango
+    theme: flatly
+    toc: yes
+    toc_float: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Objectives
+
+Employee attrition is one of the most challenging problems to an organization. Some costs  resulting from employee turnover are tangible, such as training expenses. However, the most important costs are intangible. Through this exercise, we predict employee attrition by applying machine learning algorithms and try to understand the key variables that influence turnover. The dataset comes from IBM Watson Analytics Sample Data, and can be found here: https://www.ibm.com/communities/analytics/watson-analytics-blog/hr-employee-attrition/. We are focusing on three questions:
+
+1) What are the characteristics of employees that have left? 
+2) Could we build a good predictive model to assess the likelihood of an employee leaving? Could we tell what factors lead to attrition?
+3) What suggestions we could offer for the company to retain their employees?
+
+##Data Preparation
+
+```{r}
+suppressMessages(library(dplyr))
+suppressMessages(library(magrittr))
+suppressMessages(library(caret))
+set.seed(1234)
+
+HRdata <- read.csv("EmployeeAttrition.csv")
+colnames(HRdata)[1] <- "Age"
+str(HRdata)
+
+#convert categorical variables to factor
+HRdata$Education %<>% as.factor()
+HRdata$EnvironmentSatisfaction %<>% as.factor()
+HRdata$JobInvolvement %<>% as.factor()
+HRdata$JobLevel %<>% as.factor()
+HRdata$JobInvolvement %<>% as.factor()
+HRdata$JobSatisfaction %<>% as.factor()
+HRdata$PerformanceRating %<>% as.factor()
+HRdata$RelationshipSatisfaction %<>% as.factor()
+HRdata$StockOptionLevel %<>% as.factor()
+HRdata$WorkLifeBalance %<>% as.factor()
+
+summary(HRdata)
+
+prop.table(table(HRdata$Attrition))
+
+```
+
+From the summary, we can tell that the dataset is clean, but we have an imbalance data. Based on the summary we can also see that variables: "Over18", "EmployeeCount", and "Standard Hours" all have the same response for each employee, while "EmployeeNumber" is the ID of the employee. We will exclude them in our analysis. Next, we will explore several variables that seem interesting to describe the characteristics of employees who left the company.
+
+##Exploratory Data Analysis
+
+###1) Attrition Rate by Income Level
+
+```{r}
+suppressMessages(library(ggplot2))
+suppressMessages(library(grid))
+suppressMessages(library(gridExtra))
+suppressMessages(library(ggthemes))
+
+g1 <- ggplot(HRdata, aes(x = MonthlyIncome, fill = Attrition)) + geom_density(alpha = 0.7) + scale_color_brewer(palette="Set2")
+g2 <- ggplot(HRdata, aes(x = HourlyRate, fill = Attrition)) + geom_density(alpha = 0.7) + scale_color_brewer(palette="Set2")
+g3 <- ggplot(HRdata, aes(x = DailyRate, fill = Attrition)) + geom_density(alpha = 0.7) + scale_color_brewer(palette="Set2")
+g4 <- ggplot(HRdata, aes(x = MonthlyRate, fill = Attrition)) + geom_density(alpha = 0.7) + scale_color_brewer(palette="Set2")
+
+grid.arrange(g1, g2, g3, g4, ncol = 2, nrow = 2)
+
+```
+
+When income level is at the lower end, employees seem to have a higher tendency to leave the company. However, there seems to be no straightforward relation between Hourly Rate, Daily Rate, and Monthly Rate with attrition. We decided to exclude these three variables in our preediction model later and keep only the Income variable.
+
+
+###2) Attrition Rate by Age, Business Travel, Department, and Distance from Home
+
+```{r}
+AgePlot <- ggplot(HRdata, aes(x = Age, fill = Attrition)) + geom_density(alpha = 0.7)
+TravelPlot <- ggplot(HRdata,aes(BusinessTravel,fill=Attrition))+geom_bar()
+DeptPlot <- ggplot(HRdata,aes(Department,fill=Attrition))+geom_bar()
+DistPlot <- ggplot(HRdata,aes(DistanceFromHome,fill=Attrition))+geom_bar()
+
+grid.arrange(AgePlot, TravelPlot, DeptPlot, DistPlot, ncol = 2, nrow = 2)
+```
+
+Figure 1: The majority of employees who leave the company are around 30 years old.
+Figure 2: Among the three groups, people who travel frequently have a higher tendency to leave
+Figure 3: Sales are more mobile than HR and R&D
+Figure 4: From absolute number perspective, employees who live closer to the company are more likely to leave
+
+###3) Attrition Rate by Education, Education Field, Environment Satisfaction, and Gender
+
+```{r}
+EduPlot <- ggplot(HRdata,aes(Education,fill=Attrition))+geom_bar()
+EdufieldPlot <- ggplot(HRdata,aes(EducationField,fill=Attrition))+geom_bar()
+EnvPlot <- ggplot(HRdata,aes(EnvironmentSatisfaction,fill=Attrition))+geom_bar()
+GenPlot <- ggplot(HRdata,aes(Gender,fill=Attrition))+geom_bar()
+
+grid.arrange(EduPlot, EdufieldPlot, EnvPlot, GenPlot, ncol = 2, nrow = 2)
+```
+
+Figure 1: PHDs are less likely to quit, while the rest education levels have similar attrition rates
+Figure 2: Since life science and medical account for the most education fields, more people are also leaving
+Figure 3: The attrition rate of employees who feel least satisfied is higher than the rest groups
+Figure 4: We don't see a big difference in attrition rate between male and female
+
+###4) Attrition Rate by Job Involvement, Job Level, Job Role, and Job Satisfaction
+
+```{r}
+JobInvPlot <- ggplot(HRdata,aes(JobInvolvement,fill=Attrition))+geom_bar()
+JobLevelPlot <- ggplot(HRdata,aes(JobLevel,fill=Attrition))+geom_bar()
+JobRolePlot <- ggplot(HRdata,aes(JobRole,fill=Attrition))+geom_bar()
+JobSatPlot <- ggplot(HRdata,aes(JobSatisfaction,fill=Attrition))+geom_bar()
+
+grid.arrange(JobInvPlot, JobLevelPlot, JobRolePlot, JobSatPlot, ncol = 2, nrow = 2)
+```
+
+Figure 1: Employees who are less involved have a higher tendency to leave
+Figure 2: Lower level employees have higher attrition rate
+Figure 3: Laboratory Technician, Sales Representatitve and Research Director are more likely to leave
+Figure 4: Employees with lower job satisfaction have slightly higher attrition rates
+
+###5) Attrition Rate by Marital Status, Num of Companies Worked, Overtime, and Percent Salary Hike
+
+```{r}
+MarPlot <- ggplot(HRdata,aes(MaritalStatus,fill=Attrition))+geom_bar()
+NumCompPlot <- ggplot(HRdata,aes(NumCompaniesWorked,fill=Attrition))+geom_bar()
+OTPlot <- ggplot(HRdata,aes(OverTime,fill=Attrition))+geom_bar()
+HikePlot <- ggplot(HRdata,aes(PercentSalaryHike,Attrition))+geom_point(size=4,alpha = 0.01)
+
+grid.arrange(MarPlot, NumCompPlot, OTPlot, HikePlot, ncol = 2, nrow = 2)
+```
+
+Figure 1: Single employees are the most mobile
+Figure 2: Employees who have worked only for one company quit a lot
+Figure 3: Overtime will lead to a higher attrition rate
+Figure 4: Less percent of salary hike leads to employees leaving the company
+
+###6) Attrition Rate by Performance Rating, Relationship Satisfaction, Stock Option Level, and Total Working Years
+
+```{r}
+PerfPlot <- ggplot(HRdata,aes(PerformanceRating,fill = Attrition))+geom_bar()
+RelSatPlot <- ggplot(HRdata,aes(RelationshipSatisfaction,fill = Attrition))+geom_bar()
+StockPlot <- ggplot(HRdata,aes(StockOptionLevel,fill = Attrition))+geom_bar()
+WorkingYearsPlot <- ggplot(HRdata,aes(TotalWorkingYears,fill = Attrition))+geom_bar()
+
+grid.arrange(PerfPlot, RelSatPlot, StockPlot, WorkingYearsPlot, ncol = 2, nrow = 2)
+```
+
+Figure 1: Employees only have performance rating of 3 and 4. Smaller percentage of level 4 employees quit
+Figure 2: No significant differences observed
+Figure 3: Employees with no or very few stock options are more likely to leave
+Figure 4: Employees who have worked only for one year have the highest attrition rate
+
+###7) Attrition Rate by Training Times, Worklife Balance, Years At Company, Years in Current Role, Years Since Last Promotion, and Years with Current Manager
+
+```{r}
+TrainTimesPlot <- ggplot(HRdata,aes(TrainingTimesLastYear,fill = Attrition))+geom_bar()
+WLBPlot <- ggplot(HRdata,aes(WorkLifeBalance,fill = Attrition))+geom_bar()
+YearAtCompPlot <- ggplot(HRdata,aes(YearsAtCompany,fill = Attrition))+geom_bar()
+YearInCurrPlot <- ggplot(HRdata,aes(YearsInCurrentRole,fill = Attrition))+geom_bar()
+PromPlot <- ggplot(HRdata,aes(YearsSinceLastPromotion,fill = Attrition))+geom_bar()
+MgrPlot <- ggplot(HRdata,aes(YearsWithCurrManager,fill = Attrition))+geom_bar()
+
+grid.arrange(TrainTimesPlot, WLBPlot, YearAtCompPlot, YearInCurrPlot, PromPlot, MgrPlot, ncol = 2, nrow = 3)
+```
+
+Figure 1: People been trained 2-4 times are more likely to leave by absolute numbers
+Figure 2: Level 1 (worst worklife balance) have higher attrition rate
+Figure 3: Same as Total Working Years, people who have worked at the company for only one year are most likely to quit
+Figure 4: A large portion of employees with just 0 year quitting, role change could be a trigger for quitting
+Figure 5: It shows that a large portion of people who are just promoted will quit
+Figure 6: A new manager seems another trigger for quitting
+
+```{r}
+
+#HRdata$Attrition <- as.factor(ifelse(HRdata$Attrition == "Yes",1,0))
+#Based on EDA above, remove several variables that are not important in predicting attrition
+HRdata = HRdata %>% select(-c(Over18,EmployeeCount,EmployeeNumber,DailyRate,HourlyRate,MonthlyRate,StandardHours))
+train_data_indicies <- sample(1:nrow(HRdata), 
+                              replace = F, 
+                              size = floor(nrow(HRdata) * 0.7)) 
+train_data <- HRdata[train_data_indicies, ]
+test_data <- HRdata[-train_data_indicies, ]
+
+fitControl <- trainControl(## 10-fold CV
+                           method = "cv",
+                           number = 5,
+                           selectionFunction = "oneSE",
+                           verboseIter = T)
+```
+
+## Build Prediction Model
+
+### Summary of the models used
+1. log_prediction: Logistic Model with no additional improvements
+2. log_boosted_prediction: boosting, 10* fold CV and Kappa stat
+3. log_step_prediction: forward stepping
+4. svm_prediction_1: Vanilla Kernel
+5. svm_prediction_2: Radial Basis Kernel
+6. svm_prediction_3: SVM with boostraping
+7. tree_prediction: trimmed c* tree
+8. tree_random_forest_prediction: random forest
+9. tree_ada_prediction: AdaBoost
+
+###1) Logistic Regression
+
+```{r}
+log_model <- glm(Attrition ~ ., data = train_data, family = "binomial")
+#Create a step logistic to factor in all of the necessary variables
+# hr_formula <- colnames(HRdata) %>%
+#     {paste(.[! . %in% "Attrition"], collapse = " + ")} %>%
+#     paste("Attrition ~ ", .) %>%
+#     as.formula()
+# log_model_step <- glm(Attrition~ 1, data = train_data, family = binomial)
+# log_model_step <- step(log_model_step, scope = (hr_formula), direction = "forward")
+# save(log_model_step, file = "log_model_step.txt")
+load(file = "log_model_step.txt")
+# Boosted Logistic Model
+log_model_boosted <- caret::train(Attrition ~ ., data = train_data, 
+                                    method = "LogitBoost", 
+                                    trcontrol = fitControl,
+                                    metric = "Kappa")
+```
+
+###2) SVM
+
+```{r}
+suppressMessages(library(kernlab))
+svm_model_1 <- ksvm(Attrition ~ ., data = train_data, kernel = "vanilladot")
+svm_model_2 <- ksvm(Attrition ~ ., data = train_data, kernel = "rbfdot")
+svm_model_3 <- caret::train(Attrition ~ ., data = train_data, 
+                                  method = "svmRadialSigma", 
+                                  metric = "Kappa", 
+                                  trcontrol = fitControl)
+```
+
+###3) Tree Methods
+
+```{r}
+suppressMessages(library(party))
+tree_model <- ctree(Attrition ~ ., data = train_data,
+                      control = ctree_control(mincriterion = .99))
+
+suppressMessages(library(randomForest))
+tree_random_forest <- randomForest(Attrition~., data = train_data, importance=TRUE, ntree=500)
+suppressMessages(library(ada))
+tree_ada <- ada(Attrition~., data = train_data)
+```
+
+## Prediction of Models
+
+```{r}
+
+log_prediction <- predict(log_model, test_data, type = "response") %>% {ifelse(. > 0.5, "Yes", "No")} %>% as.factor()
+log_boosted_prediction <- predict(log_model_boosted, test_data, type = "raw")
+log_step_prediction <- predict(log_model_step, test_data, type = "response") %>% {ifelse(. > 0.5, "Yes", "No")} %>% as.factor()
+svm_prediction_1 <- predict(svm_model_1, test_data)
+svm_prediction_2 <- predict(svm_model_2, test_data)
+svm_prediction_3 <- predict(svm_model_3, test_data)
+tree_prediction <- predict(tree_model, test_data)
+tree_random_forest_prediction <- predict(tree_random_forest, test_data)
+tree_ada_prediction <- predict(tree_ada, test_data)
+
+a1 = confusionMatrix(log_prediction,test_data$Attrition, positive = "Yes")
+a2 = confusionMatrix(log_boosted_prediction,test_data$Attrition, positive = "Yes")
+a3 = confusionMatrix(log_step_prediction,test_data$Attrition, positive = "Yes")
+a4 = confusionMatrix(svm_prediction_1,test_data$Attrition, positive = "Yes")
+a5 = confusionMatrix(svm_prediction_2,test_data$Attrition, positive = "Yes")
+a6 = confusionMatrix(svm_prediction_3,test_data$Attrition, positive = "Yes")
+a7 = confusionMatrix(tree_prediction,test_data$Attrition, positive = "Yes")
+a8 = confusionMatrix(tree_random_forest_prediction,test_data$Attrition, positive = "Yes")
+a9 = confusionMatrix(tree_ada_prediction,test_data$Attrition, positive = "Yes")
+
+names = c("Log Prediction Plain","Log Boosted","Log Step","SVM with Vanilla Kernal","SVM Radial Basis Kernal", "Bootstrap SVM", "CTree Regression","Random Forest Classification","Ada Boost Classification")
+acc_predictions = c(a1$overall[1],a2$overall[1],a3$overall[1],a4$overall[1],a5$overall[1],a6$overall[1],a7$overall[1],a8$overall[1],a9$overall[1])
+kappa_predictions = c(a1$overall[2],a2$overall[2],a3$overall[2],a4$overall[2],a5$overall[2],a6$overall[2],a7$overall[2],a8$overall[2],a9$overall[2])
+acc_mat <- data.frame(ModelName = names, accuracy = acc_predictions, kappa = kappa_predictions) %>% print
+```
+
+## Analysis
+
+Based on the result, Log Step has the best performance among the predictive models. Log Step has the accuracy of 86.39% and Kappa of 0.4. The model can be shown below:
+
+```{r}
+summary(log_model_step)
+a3
+```
+
+HR team would probably prefer to incorrectly classify employees not looking to quit as high potential of quiting rather than classify those that are likely to quit as not at risk. Because it's important to not miss at risk employees, HR will really care about sensitivity
+
+The sensitivity of the log_step model is 40%. In an HR context, this is 40% more employees that could potentially be targeted prior to quiting. From that standpoint, an organization that loses 100 people per year could possibly target 40 implementing measures to retain.
+
+
+## Factors that lead to attrition 
+
+Based on the log_step summary we could infer that the following features are significantly linked to employee attrition:
+1. JobLevel : employess with high job level are less likely to leave.
+
+2. OverTime : employees that turnover are often working over time.
+
+3. StockOptionLevel : employees with low levels of stock option are more likely to quit.
+
+4. JobInvolvement : low job involvement also appeared to contribute to resigning.
+
+5. EnvironmentSatisfaction : employees who are low on environment satisfaction are more likely to leave.
+
+6. BusinessTravel : the more employees travel, the more likely they turnover.
+
+7. DistanceFromHome : employees who live far from the office are more likely to leave.
+
+8. RelationshipSatisfaction : employees who are low on relationship satisfaction are more likely to leave.
+
+9. NumCompaniesWorked : employees who have worked at several companies before suggest that they are more likely to leave.
+
+10. WorkLifeBalance : employees with higher work life balance less likely to leave  
+
+11. Gender : male employees are more inclined to turnover.
+
+12. YearsSinceLastPromotion : the more time employees wait for a promotion, the more likely they quit.
+
+13. YearsWithCurrManager : less time employees work with their manager, more likely they leave.This may suggests that new manager may be a big cause for quitting.
+
+14. TrainingTimesLastYear : employees with more trainings are less likely to leave.
+
+15. JobSatisfaction : employees who left are mostly with low job satisfaction.
+
+16. YearsInCurrentRole : the less time employees are positioned in their current rol, the more likely they leave.
+
+17. MaritalStatus : single employees are more likely to quit.
+
+18. YearsAtCompany : new comers are more likely to quit the organization.
+
+## Suggestions
+
+As we can see from the result, there are many factors that lead to attrition. While it may not be easy to control all the factors, it may be worthwhile to look into those factors that seem controllable. Factors such as average number of hours spend by the employees, promotions, job rotation, are a few which are easier to manage.
+
+Based on the magnitude of the estimated coefficient, OverTime and Environment Satisfaction level can be considered as two highly important indicators among the factors and HR department should closely monitered these factors to effectively manage talent retention. 
+
+Other uncontrollable factors can be considered in making the judgement for monitoring employees retention. 
